@@ -12,6 +12,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 	mathRand "math/rand"
+	"net"
+	"strings"
 	"time"
 )
 
@@ -20,9 +22,11 @@ var (
 )
 
 type Target struct {
-	Url      string `json:"url"`
-	Rps      int    `json:"rps"`
-	Resident bool   `json:"-"`
+	Url      string        `json:"url"`
+	Rps      int           `json:"rps"`
+	Resident bool          `json:"-"`
+	StartAt  time.Time     `json:"start_at"`
+	Duration time.Duration `json:"duration"`
 }
 
 type Set[K comparable] map[K]struct{}
@@ -39,6 +43,8 @@ var urls = []string{"https://google.com", "https://facebook.com", "https://2ip.r
 
 var targets = make(Set[Target])
 
+var scheduledTargets = make(Set[Target])
+
 func main() {
 	n := 0
 	ctx := context.Background()
@@ -46,15 +52,19 @@ func main() {
 
 	go func() {
 		for {
+			newTarget := Target{
+				Url:      urls[mathRand.Intn(len(urls))] + "/" + string(rune(n)),
+				Rps:      mathRand.Intn(100) + 50,
+				Resident: true,
+			}
 			targets.Add(
-				Target{
-					Url:      urls[mathRand.Intn(len(urls))] + "/" + string(rune(n)),
-					Rps:      mathRand.Intn(100) + 50,
-					Resident: true,
-				},
+				newTarget,
 			)
 			n++
 			time.Sleep(time.Second * 10)
+
+			scheduleLT(newTarget)
+			scheduledTargets.Add(newTarget)
 		}
 	}()
 
@@ -62,9 +72,20 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	addrs, _ := net.InterfaceAddrs()
 
-	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", "127.0.0.1", 0))
-
+	multiaddrRaw := strings.Builder{}
+	for _, addr := range addrs {
+		if strings.Contains(addr.String(), ":") {
+			continue
+		}
+		if !strings.Contains(addr.String(), "192.168") {
+			continue
+		}
+		multiaddrRaw.WriteString(fmt.Sprintf("/ip4/%s/tcp/%d", strings.Split(addr.String(), "/")[0], 0))
+	}
+	fmt.Println(multiaddrRaw.String())
+	sourceMultiAddr, _ := multiaddr.NewMultiaddr(multiaddrRaw.String())
 	host, err := libp2p.New(
 		libp2p.ListenAddrs(sourceMultiAddr),
 		libp2p.Identity(prvKey),
@@ -120,6 +141,9 @@ func readData(r *bufio.Reader) {
 			fmt.Println(err)
 		}
 		targets.Add(newTarget)
+		if scheduledTargets.Add(newTarget) {
+			scheduleLT(newTarget)
+		}
 		fmt.Println(targets)
 	}
 
