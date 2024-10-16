@@ -13,6 +13,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	mathRand "math/rand"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,14 +47,16 @@ var targets = make(Set[Target])
 var scheduledTargets = make(Set[Target])
 
 func main() {
+	fmt.Println("I am p2plt, load testing tool")
 	n := 0
 	ctx := context.Background()
 	r := rand.Reader
 
+	// only for testing purposes
 	go func() {
 		for {
 			newTarget := Target{
-				Url:      urls[mathRand.Intn(len(urls))] + "/" + string(rune(n)),
+				Url:      urls[mathRand.Intn(len(urls))] + "/" + strconv.Itoa(n),
 				Rps:      mathRand.Intn(100) + 50,
 				Resident: true,
 			}
@@ -72,18 +75,26 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	addrs, _ := net.InterfaceAddrs()
-
 	multiaddrRaw := strings.Builder{}
+
+	//local network address
+	addrs, _ := net.InterfaceAddrs()
 	for _, addr := range addrs {
-		if strings.Contains(addr.String(), ":") {
+		if strings.HasPrefix(addr.String(), "192.168") {
+			multiaddrRaw.WriteString(fmt.Sprintf("/ip4/%s/tcp/%d", strings.Split(addr.String(), "/")[0], 0))
 			continue
 		}
-		if !strings.Contains(addr.String(), "192.168") {
+		if strings.HasPrefix(addr.String(), "127.0") {
+			multiaddrRaw.WriteString(fmt.Sprintf("/ip4/%s/tcp/%d", strings.Split(addr.String(), "/")[0], 0))
 			continue
 		}
-		multiaddrRaw.WriteString(fmt.Sprintf("/ip4/%s/tcp/%d", strings.Split(addr.String(), "/")[0], 0))
+		if strings.HasPrefix(addr.String(), "10.171") {
+			multiaddrRaw.WriteString(fmt.Sprintf("/ip4/%s/tcp/%d", strings.Split(addr.String(), "/")[0], 0))
+			continue
+		}
+
 	}
+
 	fmt.Println(multiaddrRaw.String())
 	sourceMultiAddr, _ := multiaddr.NewMultiaddr(multiaddrRaw.String())
 	host, err := libp2p.New(
